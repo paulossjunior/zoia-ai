@@ -17,6 +17,8 @@ executes command-specific pipelines.
 Redis, PostgreSQL, HTTP clients, FastAPI, and Docker do not appear in the domain layer.
 
 Architecture Decision Records are available in [`docs/adr`](docs/adr/README.md).
+Operational dashboard documentation is available in
+[`docs/operational-dashboard.md`](docs/operational-dashboard.md).
 
 ## Local Python Setup
 
@@ -40,6 +42,7 @@ Services:
 - `redis`: Redis broker
 - `redisinsight`: Redis UI at `http://localhost:5540`
 - `postgres`: durable command store
+- `dashboard`: read-only operational dashboard at `http://localhost:5173/dashboard`
 
 In RedisInsight, add a database connection with host `redis` and port `6379`
 when running from Docker Compose.
@@ -55,6 +58,8 @@ Environment variables:
 - `POSTGRES_USER`
 - `POSTGRES_PASSWORD`
 - `APP_ENV`
+- `VITE_API_BASE_URL`
+- `VITE_API_PROXY_TARGET`
 
 ## API Documentation
 
@@ -75,6 +80,51 @@ Use the docs page to inspect `POST /commands`, the required `type` and
 `payload` fields, optional `external_id` and `callback`, the `202` queued
 acknowledgement, command queries, callback audit fields, and documented error
 responses.
+
+## Operational Dashboard
+
+The local dashboard is a separate Vue 3 frontend that consumes read-only backend
+contracts. It does not submit commands, consume queues, change statuses, modify
+persisted records, or resend callbacks.
+
+See [`docs/operational-dashboard.md`](docs/operational-dashboard.md) for the
+full runtime, contract, validation, and maintenance notes.
+
+With Docker Compose running, open:
+
+```text
+http://localhost:5173/dashboard
+```
+
+For frontend-only development:
+
+```bash
+cd dashboard
+npm install
+npm run dev
+```
+
+Dashboard read endpoints:
+
+```text
+GET /dashboard/indicators
+GET /dashboard/commands
+GET /dashboard/commands/{command_id}
+```
+
+The list endpoint supports pagination, filters, search, and sorting:
+
+```bash
+curl -i "http://localhost:8000/dashboard/commands?status=failed&page=1&page_size=20&sort_by=request_received_at&sort_direction=desc"
+```
+
+Run dashboard checks:
+
+```bash
+cd dashboard
+npm test
+npm run build
+```
 
 ## Submit a Command
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Body, Path, Query, Request, status
@@ -13,6 +14,9 @@ from app.api.schemas import (
     CommandListResponse,
     CommandStatusResponse,
     CommandSummaryResponse,
+    DashboardCommandListResponse,
+    DashboardCommandSummaryResponse,
+    DashboardIndicatorsResponse,
     ErrorResponse,
     SubmitCommandRequest,
     SubmitCommandResponse,
@@ -44,6 +48,122 @@ from app.application.submit_command import SubmitCommand, SubmitCommandRequest a
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["commands"])
+
+
+@router.get(
+    "/dashboard/indicators",
+    response_model=DashboardIndicatorsResponse,
+    status_code=status.HTTP_200_OK,
+    tags=["dashboard"],
+    summary="Get dashboard indicators",
+    description="Returns read-only command and callback counters for the operational dashboard.",
+)
+def get_dashboard_indicators(request: Request) -> DashboardIndicatorsResponse:
+    """Aggregate persisted command state without mutating commands or queues."""
+    repository = request.app.state.repository
+    commands, _total = repository.list(page=1, page_size=10000)
+    return DashboardIndicatorsResponse(
+        total_commands=len(commands),
+        queued_commands=sum(1 for command in commands if command.status.value == "queued"),
+        processing_commands=sum(1 for command in commands if command.status.value == "processing"),
+        completed_commands=sum(1 for command in commands if command.status.value == "completed"),
+        failed_commands=sum(1 for command in commands if command.status.value == "failed"),
+        callback_not_required=sum(1 for command in commands if command.callback_status.value == "not_required"),
+        callback_pending=sum(1 for command in commands if command.callback_status.value == "pending"),
+        callback_sent=sum(1 for command in commands if command.callback_status.value == "sent"),
+        callback_failed=sum(1 for command in commands if command.callback_status.value == "failed"),
+    )
+
+
+@router.get(
+    "/dashboard/commands",
+    response_model=DashboardCommandListResponse,
+    status_code=status.HTTP_200_OK,
+    tags=["dashboard"],
+    summary="List dashboard commands",
+    description="Returns read-only dashboard rows with filtering, sorting, search, and pagination.",
+)
+def list_dashboard_commands(
+    request: Request,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 20,
+    status_filter: Annotated[str | None, Query(alias="status")] = None,
+    type_filter: Annotated[str | None, Query(alias="type")] = None,
+    external_id: str | None = None,
+    callback_status: str | None = None,
+    received_from: datetime | None = None,
+    received_to: datetime | None = None,
+    processing_from: datetime | None = None,
+    processing_to: datetime | None = None,
+    search: str | None = None,
+    sort_by: str = "request_received_at",
+    sort_direction: str = "desc",
+) -> DashboardCommandListResponse:
+    """Return dashboard rows from persisted commands only."""
+    repository = request.app.state.repository
+    commands, _total = repository.list(page=1, page_size=10000)
+    filtered = _filter_dashboard_commands(
+        commands,
+        status_filter=status_filter,
+        type_filter=type_filter,
+        external_id=external_id,
+        callback_status=callback_status,
+        received_from=received_from,
+        received_to=received_to,
+        processing_from=processing_from,
+        processing_to=processing_to,
+        search=search,
+    )
+    filtered = _sort_dashboard_commands(filtered, sort_by=sort_by, sort_direction=sort_direction)
+    total = len(filtered)
+    start = (page - 1) * page_size
+    end = start + page_size
+    return DashboardCommandListResponse(
+        items=[_dashboard_summary(command) for command in filtered[start:end]],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.get(
+    "/dashboard/commands/{command_id}",
+    response_model=CommandDetailResponse,
+    status_code=status.HTTP_200_OK,
+    tags=["dashboard"],
+    summary="Get dashboard command detail",
+    description="Returns one complete persisted command record for read-only dashboard inspection.",
+)
+def get_dashboard_command(
+    command_id: Annotated[str, Path(description="Command identifier.")],
+    request: Request,
+) -> CommandDetailResponse | JSONResponse:
+    """Return a dashboard detail record without scheduling or processing work."""
+    command = request.app.state.repository.get_by_id(command_id)
+    if command is None:
+        return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={"detail": "command not found"})
+    return _detail_response(
+        type(
+            "CommandDetailResult",
+            (),
+            {
+                "command_id": command.id,
+                "type": command.type,
+                "external_id": command.external_id,
+                "callback": command.callback,
+                "payload": command.payload,
+                "status": command.status,
+                "response_payload": command.response_payload,
+                "error_message": command.error_message,
+                "callback_status": command.callback_status,
+                "callback_error_message": command.callback_error_message,
+                "request_received_at": command.request_received_at,
+                "processing_started_at": command.processing_started_at,
+                "processing_finished_at": command.processing_finished_at,
+                "callback_sent_at": command.callback_sent_at,
+            },
+        )()
+    )
 
 
 @router.post(
@@ -340,3 +460,95 @@ def _detail_response(result) -> CommandDetailResponse:
         processing_finished_at=result.processing_finished_at,
         callback_sent_at=result.callback_sent_at,
     )
+
+
+def _dashboard_summary(command) -> DashboardCommandSummaryResponse:
+    """Map a command entity to the dashboard list row contract."""
+    return DashboardCommandSummaryResponse(
+        command_id=command.id,
+        type=command.type,
+        external_id=command.external_id,
+        status=command.status.value,
+        callback_status=command.callback_status.value,
+        request_received_at=command.request_received_at,
+        processing_started_at=command.processing_started_at,
+        processing_finished_at=command.processing_finished_at,
+    )
+
+
+def _filter_dashboard_commands(
+    commands,
+    *,
+    status_filter: str | None,
+    type_filter: str | None,
+    external_id: str | None,
+    callback_status: str | None,
+    received_from: datetime | None,
+    received_to: datetime | None,
+    processing_from: datetime | None,
+    processing_to: datetime | None,
+    search: str | None,
+):
+    """Apply dashboard query filters in the HTTP boundary over repository results."""
+    result = list(commands)
+    if status_filter:
+        result = [command for command in result if command.status.value == status_filter]
+    if type_filter:
+        result = [command for command in result if command.type == type_filter]
+    if external_id:
+        result = [command for command in result if command.external_id == external_id]
+    if callback_status:
+        result = [command for command in result if command.callback_status.value == callback_status]
+    if received_from:
+        result = [command for command in result if _date_gte(command.request_received_at, received_from)]
+    if received_to:
+        result = [command for command in result if _date_lte(command.request_received_at, received_to)]
+    if processing_from:
+        result = [
+            command
+            for command in result
+            if command.processing_started_at and _date_gte(command.processing_started_at, processing_from)
+        ]
+    if processing_to:
+        result = [
+            command
+            for command in result
+            if command.processing_started_at and _date_lte(command.processing_started_at, processing_to)
+        ]
+    if search:
+        text = search.strip().lower()
+        result = [
+            command
+            for command in result
+            if text in command.id.lower() or (command.external_id and text in command.external_id.lower())
+        ]
+    return result
+
+
+def _sort_dashboard_commands(commands, *, sort_by: str, sort_direction: str):
+    """Sort dashboard rows by an allowed field, defaulting to newest first."""
+    allowed = {
+        "request_received_at": lambda command: _naive(command.request_received_at),
+        "processing_started_at": lambda command: _naive(command.processing_started_at) if command.processing_started_at else datetime.min,
+        "processing_finished_at": lambda command: _naive(command.processing_finished_at) if command.processing_finished_at else datetime.min,
+        "status": lambda command: command.status.value,
+        "type": lambda command: command.type,
+    }
+    key = allowed.get(sort_by, allowed["request_received_at"])
+    reverse = sort_direction != "asc"
+    return sorted(commands, key=key, reverse=reverse)
+
+
+def _date_gte(left: datetime, right: datetime) -> bool:
+    """Compare datetimes after normalizing timezone awareness."""
+    return _naive(left) >= _naive(right)
+
+
+def _date_lte(left: datetime, right: datetime) -> bool:
+    """Compare datetimes after normalizing timezone awareness."""
+    return _naive(left) <= _naive(right)
+
+
+def _naive(value: datetime) -> datetime:
+    """Drop timezone info for dashboard filter comparisons from browser inputs."""
+    return value.replace(tzinfo=None)

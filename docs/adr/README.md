@@ -16,3 +16,4 @@ tradeoffs accepted by the project.
 - [ADR-0007: Use Docker Compose for Local Runtime](0007-docker-compose-local-runtime.md)
 - [ADR-0008: Separate Command Detail, Status, and List Query Contracts](0008-command-query-contracts.md)
 - [ADR-0009: Command Callback Persistence](0009-command-callback-persistence.md)
+- [ADR-0010: Operational Dashboard as a Read-Only Frontend](0010-operational-dashboard-read-only-frontend.md)
