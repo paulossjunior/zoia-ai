@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 from typing import Any
 from uuid import uuid4
 
 from app.domain.command import Command
 from app.domain.ports import CommandQueue, CommandRepository
 from app.domain.status import CommandStatus
+
+
+logger = logging.getLogger(__name__)
 
 
 class InvalidCommandError(ValueError):
@@ -48,7 +52,19 @@ class SubmitCommand:
         command = Command(id=str(uuid4()), type=command_type, payload=payload)
 
         self.repository.save(command)
+        logger.info(
+            "command_persisted command_id=%s type=%s status=%s",
+            command.id,
+            command.type,
+            command.status.value,
+        )
         self.queue.publish(command.id)
+        logger.info(
+            "command_queued command_id=%s type=%s status=%s",
+            command.id,
+            command.type,
+            command.status.value,
+        )
 
         return SubmitCommandResult(command_id=command.id, status=command.status)
 

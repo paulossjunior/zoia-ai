@@ -5,6 +5,7 @@ import json
 from app.application.handler_registry import HandlerRegistry
 from app.application.process_command import ProcessCommand
 from app.domain.command import Command
+from app.domain.status import CommandStatus
 from app.infrastructure.redis_queue import RedisCommandQueue
 from app.worker.main import process_one
 
@@ -30,7 +31,10 @@ def test_worker_single_iteration_consumes_queue_and_invokes_processor(repository
     processed = process_one(queue, ProcessCommand(repository, registry))
 
     assert processed is True
-    assert repository.get_by_id("cmd-1").completed_at is not None
+    saved = repository.get_by_id("cmd-1")
+    assert saved.status == CommandStatus.COMPLETED
+    assert saved.completed_at is not None
+    assert saved.response == {"handler": "fake"}
 
 
 def test_redis_queue_serializes_and_deserializes_command_ids() -> None:

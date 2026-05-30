@@ -38,7 +38,11 @@ def test_post_commands_valid_request_returns_202_and_queued() -> None:
     body = response.json()
     assert body["command_id"]
     assert body["status"] == "queued"
-    assert repo.get_by_id(body["command_id"]) is not None
+    command = repo.get_by_id(body["command_id"])
+    assert command is not None
+    assert command.payload == {"message": "hello"}
+    assert command.request_received_at is not None
+    assert command.status == CommandStatus.QUEUED
 
 
 def test_post_commands_validation_errors_return_400() -> None:
@@ -73,11 +77,11 @@ def test_api_submission_does_not_execute_handlers(monkeypatch) -> None:
     assert called is False
 
 
-def test_get_commands_status_returns_200_for_known_command() -> None:
+def test_get_commands_record_returns_200_for_known_command() -> None:
     repo = MemoryCommandRepository()
     command = Command(id=str(uuid4()), type="TEST_COMMAND", payload={"message": "hello"})
     command.mark_processing()
-    command.mark_completed()
+    command.mark_completed({"echo": "hello"})
     repo.save(command)
     client = TestClient(create_app(repo, GuardQueue()))
 
@@ -87,23 +91,51 @@ def test_get_commands_status_returns_200_for_known_command() -> None:
     body = response.json()
     assert body["command_id"] == command.id
     assert body["type"] == "TEST_COMMAND"
+    assert body["payload"] == {"message": "hello"}
     assert body["status"] == CommandStatus.COMPLETED.value
-    assert body["created_at"]
-    assert body["started_at"]
-    assert body["completed_at"]
+    assert body["response"] == {"echo": "hello"}
+    assert body["request_received_at"]
+    assert body["processing_started_at"]
+    assert body["processing_finished_at"]
     assert body["error_message"] is None
 
 
-def test_get_commands_status_does_not_include_payload() -> None:
+def test_get_commands_record_returns_queued_payload_and_receipt_timestamp() -> None:
     repo = MemoryCommandRepository()
-    command = Command(id=str(uuid4()), type="TEST_COMMAND", payload={"message": "secret"})
+    command = Command(id=str(uuid4()), type="TEST_COMMAND", payload={"message": "hello"})
     repo.save(command)
     client = TestClient(create_app(repo, GuardQueue()))
 
     response = client.get(f"/commands/{command.id}")
 
     assert response.status_code == 200
-    assert "payload" not in response.json()
+    body = response.json()
+    assert body["payload"] == {"message": "hello"}
+    assert body["status"] == "queued"
+    assert body["request_received_at"]
+    assert body["processing_started_at"] is None
+    assert body["processing_finished_at"] is None
+    assert body["response"] is None
+    assert body["error_message"] is None
+
+
+def test_get_commands_record_returns_failed_error_and_null_response() -> None:
+    repo = MemoryCommandRepository()
+    command = Command(id=str(uuid4()), type="TEST_COMMAND", payload={"message": "hello"})
+    command.mark_processing()
+    command.mark_failed("boom")
+    repo.save(command)
+    client = TestClient(create_app(repo, GuardQueue()))
+
+    response = client.get(f"/commands/{command.id}")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "failed"
+    assert body["payload"] == {"message": "hello"}
+    assert body["response"] is None
+    assert body["error_message"] == "boom"
+    assert body["processing_finished_at"]
 
 
 def test_get_commands_status_does_not_publish_or_execute_handlers(monkeypatch) -> None:

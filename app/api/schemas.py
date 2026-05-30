@@ -64,7 +64,7 @@ class SubmitCommandResponse(BaseModel):
 
 
 class CommandStatusResponse(BaseModel):
-    """Read-only view of a command lifecycle state."""
+    """Complete read-only view of a command execution record."""
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -72,11 +72,13 @@ class CommandStatusResponse(BaseModel):
                 {
                     "command_id": "00000000-0000-4000-8000-000000000000",
                     "type": "TEST_COMMAND",
+                    "payload": {"message": "hello"},
                     "status": "completed",
-                    "created_at": "2026-05-30T19:00:00Z",
-                    "started_at": "2026-05-30T19:00:01Z",
-                    "completed_at": "2026-05-30T19:00:02Z",
+                    "response": {"echo": "hello"},
                     "error_message": None,
+                    "request_received_at": "2026-05-30T19:00:00Z",
+                    "processing_started_at": "2026-05-30T19:00:01Z",
+                    "processing_finished_at": "2026-05-30T19:00:02Z",
                 }
             ]
         }
@@ -87,14 +89,16 @@ class CommandStatusResponse(BaseModel):
         examples=["00000000-0000-4000-8000-000000000000"],
     )
     type: str = Field(description="Command type originally submitted.", examples=["TEST_COMMAND"])
+    payload: dict[str, Any] = Field(description="Original command payload received during submission.")
     status: str = Field(
         description="Current command lifecycle status.",
         examples=["queued", "processing", "completed", "failed"],
     )
-    created_at: datetime = Field(description="Timestamp when the command was accepted.")
-    started_at: datetime | None = Field(default=None, description="Timestamp when worker processing started.")
-    completed_at: datetime | None = Field(default=None, description="Timestamp when processing completed or failed.")
+    response: dict[str, Any] | None = Field(default=None, description="Structured processing response when produced.")
     error_message: str | None = Field(default=None, description="Failure reason when status is failed.")
+    request_received_at: datetime = Field(description="Timestamp when the command request was accepted.")
+    processing_started_at: datetime | None = Field(default=None, description="Timestamp when worker processing started.")
+    processing_finished_at: datetime | None = Field(default=None, description="Timestamp when processing completed or failed.")
 
 
 class ErrorResponse(BaseModel):

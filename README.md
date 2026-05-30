@@ -36,6 +36,10 @@ Services:
 - `api`: `uvicorn app.api.main:app --host 0.0.0.0 --port 8000`
 - `worker`: `python -m app.worker.main`
 - `redis`: Redis broker
+- `redisinsight`: Redis UI at `http://localhost:5540`
+
+In RedisInsight, add a database connection with host `redis` and port `6379`
+when running from Docker Compose.
 
 Environment variables:
 
@@ -60,8 +64,9 @@ http://localhost:8000/openapi.json
 ```
 
 Use the docs page to inspect `POST /commands`, the required `type` and
-`payload` fields, the `202` queued acknowledgement, and the `400` validation
-error response.
+`payload` fields, the `202` queued acknowledgement, the complete command
+record returned by `GET /commands/{command_id}`, and documented error
+responses.
 
 ## Submit a Command
 
@@ -83,9 +88,10 @@ Expected response:
 Invalid requests return HTTP 400 when `type` is missing/blank or `payload` is
 missing/not an object.
 
-## Check Command Status
+## Retrieve Command Record
 
-Use the command id returned by submission to query the read-only status view:
+Use the command id returned by submission to query the read-only persisted
+execution record:
 
 ```text
 GET /commands/{command_id}
@@ -95,18 +101,60 @@ GET /commands/{command_id}
 curl -i http://localhost:8000/commands/00000000-0000-4000-8000-000000000000
 ```
 
-Successful responses include lifecycle fields and never include the original
-command payload:
+Queued records preserve the original payload before worker processing starts:
 
 ```json
 {
   "command_id": "00000000-0000-4000-8000-000000000000",
   "type": "TEST_COMMAND",
+  "payload": {
+    "message": "hello"
+  },
+  "status": "queued",
+  "response": null,
+  "error_message": null,
+  "request_received_at": "2026-05-30T19:00:00Z",
+  "processing_started_at": null,
+  "processing_finished_at": null
+}
+```
+
+Successful processed records include lifecycle fields and the produced
+response when a handler writes one:
+
+```json
+{
+  "command_id": "00000000-0000-4000-8000-000000000000",
+  "type": "TEST_COMMAND",
+  "payload": {
+    "message": "hello"
+  },
   "status": "completed",
-  "created_at": "2026-05-30T19:00:00Z",
-  "started_at": "2026-05-30T19:00:01Z",
-  "completed_at": "2026-05-30T19:00:02Z",
-  "error_message": null
+  "response": {
+    "echo": "hello"
+  },
+  "error_message": null,
+  "request_received_at": "2026-05-30T19:00:00Z",
+  "processing_started_at": "2026-05-30T19:00:01Z",
+  "processing_finished_at": "2026-05-30T19:00:02Z"
+}
+```
+
+Failed records keep the payload, clear the response, and persist the error:
+
+```json
+{
+  "command_id": "00000000-0000-4000-8000-000000000000",
+  "type": "TEST_COMMAND",
+  "payload": {
+    "message": "hello"
+  },
+  "status": "failed",
+  "response": null,
+  "error_message": "Handler execution failed: example",
+  "request_received_at": "2026-05-30T19:00:00Z",
+  "processing_started_at": "2026-05-30T19:00:01Z",
+  "processing_finished_at": "2026-05-30T19:00:02Z"
 }
 ```
 
@@ -126,8 +174,8 @@ Unknown command ids return HTTP 404:
 }
 ```
 
-Status lookup is read-only. It does not enqueue work, consume queue messages, or
-run command handlers.
+Command record lookup is read-only. It does not enqueue work, consume queue
+messages, or run command handlers.
 
 ## Worker Logs
 

@@ -21,11 +21,13 @@ VALIDATION_ERROR_EXAMPLE = {"detail": "invalid command request"}
 COMMAND_STATUS_EXAMPLE = {
     "command_id": "00000000-0000-4000-8000-000000000000",
     "type": "TEST_COMMAND",
+    "payload": {"message": "hello"},
     "status": "completed",
-    "created_at": "2026-05-30T19:00:00Z",
-    "started_at": "2026-05-30T19:00:01Z",
-    "completed_at": "2026-05-30T19:00:02Z",
+    "response": {"echo": "hello"},
     "error_message": None,
+    "request_received_at": "2026-05-30T19:00:00Z",
+    "processing_started_at": "2026-05-30T19:00:01Z",
+    "processing_finished_at": "2026-05-30T19:00:02Z",
 }
 INVALID_COMMAND_ID_EXAMPLE = {"detail": "invalid command_id"}
 COMMAND_NOT_FOUND_EXAMPLE = {"detail": "command not found"}
@@ -90,6 +92,7 @@ PUBLIC_DOC_TARGETS = {
     Path("app/commands/test_command/pipeline.py"): ["create_test_command_pipeline"],
 }
 EXTERNAL_API_FORBIDDEN_TERMS = ("redis", "rpush", "blpop", "repository", "broker")
+DOMAIN_FORBIDDEN_IMPORT_PREFIXES = ("fastapi", "redis", "docker", "app.infrastructure")
 
 
 class DocumentationQueue:
@@ -202,6 +205,20 @@ def test_required_command_processing_modules_have_module_docstrings() -> None:
         assert ast.get_docstring(tree), f"{path} is missing a module docstring"
 
 
+def test_domain_modules_do_not_import_infrastructure_or_frameworks() -> None:
+    for path in Path("app/domain").glob("*.py"):
+        tree = ast.parse(path.read_text())
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imported_names = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                imported_names = [node.module]
+            else:
+                continue
+            for imported_name in imported_names:
+                assert not imported_name.startswith(DOMAIN_FORBIDDEN_IMPORT_PREFIXES), f"{path} imports {imported_name}"
+
+
 def test_public_command_processing_targets_have_docstrings() -> None:
     for path, target_names in PUBLIC_DOC_TARGETS.items():
         tree = ast.parse(path.read_text())
@@ -251,25 +268,27 @@ def test_readme_says_external_clients_do_not_need_queue_details() -> None:
 def test_openapi_documents_get_command_status_operation() -> None:
     operation = _command_status_operation()
 
-    assert operation["summary"] == "Get command status"
+    assert operation["summary"] == "Get command record"
     assert "read-only" in operation["description"]
+    assert "complete persisted execution record" in operation["description"]
     assert operation["tags"] == ["commands"]
 
 
-def test_openapi_command_status_schema_includes_status_fields_without_payload() -> None:
+def test_openapi_command_status_schema_includes_complete_record_fields() -> None:
     schema = _schema("CommandStatusResponse")
 
-    assert set(schema["required"]) == {"command_id", "type", "status", "created_at"}
+    assert set(schema["required"]) == {"command_id", "type", "payload", "status", "request_received_at"}
     assert schema["properties"].keys() >= {
         "command_id",
         "type",
+        "payload",
         "status",
-        "created_at",
-        "started_at",
-        "completed_at",
+        "response",
         "error_message",
+        "request_received_at",
+        "processing_started_at",
+        "processing_finished_at",
     }
-    assert "payload" not in schema["properties"]
     assert COMMAND_STATUS_EXAMPLE in _walk_examples(_command_status_operation())
 
 
@@ -293,6 +312,28 @@ def test_readme_documents_command_status_query() -> None:
 
     assert "GET /commands/{command_id}" in readme
     assert "curl -i http://localhost:8000/commands/00000000-0000-4000-8000-000000000000" in readme
+    assert '"payload"' in readme
+    assert '"response"' in readme
+    assert '"request_received_at"' in readme
+    assert '"processing_started_at"' in readme
+    assert '"processing_finished_at"' in readme
     assert "invalid command_id" in readme
     assert "command not found" in readme
     assert "read-only" in lowered
+
+
+def test_persisted_command_record_contract_examples_are_documented() -> None:
+    readme = Path("README.md").read_text()
+
+    for status in ('"queued"', '"completed"', '"failed"'):
+        assert status in readme
+    for field in (
+        "command_id",
+        "payload",
+        "response",
+        "error_message",
+        "request_received_at",
+        "processing_started_at",
+        "processing_finished_at",
+    ):
+        assert f'"{field}"' in readme

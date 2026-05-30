@@ -77,11 +77,12 @@ def submit_command(
     "/commands/{command_id}",
     response_model=CommandStatusResponse,
     status_code=status.HTTP_200_OK,
-    summary="Get command status",
+    summary="Get command record",
     description=(
-        "Returns the current status for a previously submitted command. The "
-        "operation is read-only, does not schedule work, and does not return "
-        "the original command payload."
+        "Returns the complete persisted execution record for a previously "
+        "submitted command. The operation is read-only, does not schedule work, "
+        "and includes the original payload, current status, response or error, "
+        "and lifecycle timestamps."
     ),
     responses={
         status.HTTP_200_OK: {
@@ -91,11 +92,13 @@ def submit_command(
                     "example": {
                         "command_id": "00000000-0000-4000-8000-000000000000",
                         "type": "TEST_COMMAND",
+                        "payload": {"message": "hello"},
                         "status": "completed",
-                        "created_at": "2026-05-30T19:00:00Z",
-                        "started_at": "2026-05-30T19:00:01Z",
-                        "completed_at": "2026-05-30T19:00:02Z",
+                        "response": {"echo": "hello"},
                         "error_message": None,
+                        "request_received_at": "2026-05-30T19:00:00Z",
+                        "processing_started_at": "2026-05-30T19:00:01Z",
+                        "processing_finished_at": "2026-05-30T19:00:02Z",
                     }
                 }
             },
@@ -122,7 +125,7 @@ def get_command_status(
     ],
     request: Request,
 ) -> CommandStatusResponse | JSONResponse:
-    """Return command status without enqueuing or processing work."""
+    """Return a complete command record without enqueuing or processing work."""
     use_case: GetCommandStatus = request.app.state.get_command_status
     try:
         result = use_case.execute(GetCommandStatusRequest(command_id=command_id))
@@ -137,9 +140,11 @@ def get_command_status(
     return CommandStatusResponse(
         command_id=result.command_id,
         type=result.type,
+        payload=result.payload,
         status=result.status.value,
-        created_at=result.created_at,
-        started_at=result.started_at,
-        completed_at=result.completed_at,
+        response=result.response,
         error_message=result.error_message,
+        request_received_at=result.request_received_at,
+        processing_started_at=result.processing_started_at,
+        processing_finished_at=result.processing_finished_at,
     )

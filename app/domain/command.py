@@ -34,24 +34,59 @@ class Command:
     started_at: datetime | None = None
     completed_at: datetime | None = None
     error_message: str | None = None
+    response: dict[str, Any] | None = None
+
+    @property
+    def request_received_at(self) -> datetime:
+        """Timestamp when the command request was accepted."""
+        return self.created_at
+
+    @request_received_at.setter
+    def request_received_at(self, value: datetime) -> None:
+        """Keep the public persistence name compatible with existing internals."""
+        self.created_at = value
+
+    @property
+    def processing_started_at(self) -> datetime | None:
+        """Timestamp when worker processing started."""
+        return self.started_at
+
+    @processing_started_at.setter
+    def processing_started_at(self, value: datetime | None) -> None:
+        """Keep the public persistence name compatible with existing internals."""
+        self.started_at = value
+
+    @property
+    def processing_finished_at(self) -> datetime | None:
+        """Timestamp when worker processing completed or failed."""
+        return self.completed_at
+
+    @processing_finished_at.setter
+    def processing_finished_at(self, value: datetime | None) -> None:
+        """Keep the public persistence name compatible with existing internals."""
+        self.completed_at = value
 
     def mark_processing(self) -> None:
-        """Mark the command as being handled and clear previous errors."""
+        """Mark the command as being handled and clear previous outcomes."""
         self.status = CommandStatus.PROCESSING
         self.started_at = utcnow()
+        self.completed_at = None
         self.error_message = None
+        self.response = None
 
-    def mark_completed(self) -> None:
-        """Mark the command as successfully finished."""
+    def mark_completed(self, response: dict[str, Any] | None = None) -> None:
+        """Mark the command as successfully finished with an optional response."""
         self.status = CommandStatus.COMPLETED
         self.completed_at = utcnow()
         self.error_message = None
+        self.response = response
 
     def mark_failed(self, error_message: str) -> None:
         """Mark the command as failed with a safe, traceable error message."""
         self.status = CommandStatus.FAILED
         self.completed_at = utcnow()
         self.error_message = safe_error_message(error_message)
+        self.response = None
 
 
 def safe_error_message(message: str) -> str:

@@ -55,10 +55,11 @@ class RedisCommandRepository:
             "type": command.type,
             "payload": command.payload,
             "status": command.status.value,
-            "created_at": command.created_at.isoformat(),
-            "started_at": command.started_at.isoformat() if command.started_at else None,
-            "completed_at": command.completed_at.isoformat() if command.completed_at else None,
+            "response": command.response,
             "error_message": command.error_message,
+            "request_received_at": command.request_received_at.isoformat(),
+            "processing_started_at": command.processing_started_at.isoformat() if command.processing_started_at else None,
+            "processing_finished_at": command.processing_finished_at.isoformat() if command.processing_finished_at else None,
         }
 
     @staticmethod
@@ -69,8 +70,14 @@ class RedisCommandRepository:
             type=data["type"],
             payload=data["payload"],
             status=CommandStatus(data["status"]),
-            created_at=datetime.fromisoformat(data["created_at"]),
-            started_at=datetime.fromisoformat(data["started_at"]) if data.get("started_at") else None,
-            completed_at=datetime.fromisoformat(data["completed_at"]) if data.get("completed_at") else None,
+            created_at=datetime.fromisoformat(data.get("request_received_at") or data["created_at"]),
+            started_at=_parse_optional_datetime(data.get("processing_started_at") or data.get("started_at")),
+            completed_at=_parse_optional_datetime(data.get("processing_finished_at") or data.get("completed_at")),
             error_message=data.get("error_message"),
+            response=data.get("response"),
         )
+
+
+def _parse_optional_datetime(value: str | None) -> datetime | None:
+    """Parse an optional ISO timestamp from Redis storage."""
+    return datetime.fromisoformat(value) if value else None
