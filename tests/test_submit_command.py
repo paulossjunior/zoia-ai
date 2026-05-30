@@ -52,6 +52,24 @@ def test_submit_command_creates_persists_then_queues(repository, queue, sample_p
     assert queue.published == [result.command_id]
 
 
+def test_submit_command_persists_external_id_and_callback_status(repository, queue) -> None:
+    use_case = SubmitCommand(repository, queue)
+
+    result = use_case.execute(
+        SubmitCommandRequest(
+            type="TEST_COMMAND",
+            payload={"message": "hello"},
+            external_id="BOLSISTA-12345",
+            callback="https://sistema-origem.com/api/callback",
+        )
+    )
+
+    command = repository.get_by_id(result.command_id)
+    assert command.external_id == "BOLSISTA-12345"
+    assert command.callback == "https://sistema-origem.com/api/callback"
+    assert command.callback_status.value == "pending"
+
+
 def test_submit_command_persists_before_queue_publication(sample_payload) -> None:
     events: list[str] = []
     repository = RecordingRepository(events)

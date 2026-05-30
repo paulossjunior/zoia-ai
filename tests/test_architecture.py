@@ -4,8 +4,8 @@ import ast
 from pathlib import Path
 
 
-FORBIDDEN_PREFIXES = ("fastapi", "redis", "docker", "app.infrastructure")
-FORBIDDEN_DOMAIN_DOC_TERMS = ("fastapi", "redis", "docker", "infrastructure")
+FORBIDDEN_PREFIXES = ("fastapi", "redis", "docker", "psycopg", "httpx", "app.infrastructure")
+FORBIDDEN_DOMAIN_DOC_TERMS = ("fastapi", "redis", "docker", "postgresql", "httpx", "infrastructure")
 
 
 def test_domain_layer_has_no_infrastructure_or_framework_imports() -> None:

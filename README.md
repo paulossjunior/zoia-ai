@@ -8,13 +8,15 @@ executes command-specific pipelines.
 
 - `app/domain`: framework-free entities, statuses, contexts, handlers, and ports.
 - `app/application`: use cases, pipeline executor, and handler registry.
-- `app/infrastructure`: Redis queue adapter, Redis-backed runtime repository,
-  in-memory test repository, and logging.
+- `app/infrastructure`: Redis queue adapter, PostgreSQL runtime repository,
+  HTTP callback client, in-memory test repository, and logging.
 - `app/api`: FastAPI/Pydantic HTTP boundary.
 - `app/worker`: independent command consumer.
 - `app/commands/test_command`: first Chain of Responsibility pipeline.
 
-Redis, FastAPI, and Docker do not appear in the domain layer.
+Redis, PostgreSQL, HTTP clients, FastAPI, and Docker do not appear in the domain layer.
+
+Architecture Decision Records are available in [`docs/adr`](docs/adr/README.md).
 
 ## Local Python Setup
 
@@ -37,6 +39,7 @@ Services:
 - `worker`: `python -m app.worker.main`
 - `redis`: Redis broker
 - `redisinsight`: Redis UI at `http://localhost:5540`
+- `postgres`: durable command store
 
 In RedisInsight, add a database connection with host `redis` and port `6379`
 when running from Docker Compose.
@@ -46,6 +49,11 @@ Environment variables:
 - `REDIS_HOST`
 - `REDIS_PORT`
 - `REDIS_QUEUE_NAME`
+- `POSTGRES_HOST`
+- `POSTGRES_PORT`
+- `POSTGRES_DB`
+- `POSTGRES_USER`
+- `POSTGRES_PASSWORD`
 - `APP_ENV`
 
 ## API Documentation
@@ -64,8 +72,8 @@ http://localhost:8000/openapi.json
 ```
 
 Use the docs page to inspect `POST /commands`, the required `type` and
-`payload` fields, the `202` queued acknowledgement, the complete command
-record returned by `GET /commands/{command_id}`, and documented error
+`payload` fields, optional `external_id` and `callback`, the `202` queued
+acknowledgement, command queries, callback audit fields, and documented error
 responses.
 
 ## Submit a Command
@@ -74,6 +82,14 @@ responses.
 curl -i -X POST http://localhost:8000/commands \
   -H "Content-Type: application/json" \
   -d '{"type":"TEST_COMMAND","payload":{"message":"hello"}}'
+```
+
+With callback and external business id:
+
+```bash
+curl -i -X POST http://localhost:8000/commands \
+  -H "Content-Type: application/json" \
+  -d '{"type":"TEST_COMMAND","payload":{"message":"hello"},"external_id":"BOLSISTA-12345","callback":"https://sistema-origem.com/api/callback"}'
 ```
 
 Expected response:
@@ -107,15 +123,20 @@ Queued records preserve the original payload before worker processing starts:
 {
   "command_id": "00000000-0000-4000-8000-000000000000",
   "type": "TEST_COMMAND",
+  "external_id": null,
+  "callback": null,
   "payload": {
     "message": "hello"
   },
   "status": "queued",
-  "response": null,
+  "response_payload": null,
   "error_message": null,
+  "callback_status": "not_required",
+  "callback_error_message": null,
   "request_received_at": "2026-05-30T19:00:00Z",
   "processing_started_at": null,
-  "processing_finished_at": null
+  "processing_finished_at": null,
+  "callback_sent_at": null
 }
 ```
 
@@ -126,17 +147,22 @@ response when a handler writes one:
 {
   "command_id": "00000000-0000-4000-8000-000000000000",
   "type": "TEST_COMMAND",
+  "external_id": "BOLSISTA-12345",
+  "callback": "https://sistema-origem.com/api/callback",
   "payload": {
     "message": "hello"
   },
   "status": "completed",
-  "response": {
+  "response_payload": {
     "echo": "hello"
   },
   "error_message": null,
+  "callback_status": "sent",
+  "callback_error_message": null,
   "request_received_at": "2026-05-30T19:00:00Z",
   "processing_started_at": "2026-05-30T19:00:01Z",
-  "processing_finished_at": "2026-05-30T19:00:02Z"
+  "processing_finished_at": "2026-05-30T19:00:02Z",
+  "callback_sent_at": "2026-05-30T19:00:03Z"
 }
 ```
 
@@ -146,15 +172,20 @@ Failed records keep the payload, clear the response, and persist the error:
 {
   "command_id": "00000000-0000-4000-8000-000000000000",
   "type": "TEST_COMMAND",
+  "external_id": null,
+  "callback": null,
   "payload": {
     "message": "hello"
   },
   "status": "failed",
-  "response": null,
+  "response_payload": null,
   "error_message": "Handler execution failed: example",
+  "callback_status": "not_required",
+  "callback_error_message": null,
   "request_received_at": "2026-05-30T19:00:00Z",
   "processing_started_at": "2026-05-30T19:00:01Z",
-  "processing_finished_at": "2026-05-30T19:00:02Z"
+  "processing_finished_at": "2026-05-30T19:00:02Z",
+  "callback_sent_at": null
 }
 ```
 
@@ -177,13 +208,89 @@ Unknown command ids return HTTP 404:
 Command record lookup is read-only. It does not enqueue work, consume queue
 messages, or run command handlers.
 
+## Check Command Status Only
+
+Use the status-only endpoint when a client needs to poll state without receiving
+the full payload, response, error, or timestamps:
+
+```text
+GET /commands/{command_id}/status
+```
+
+```bash
+curl -i http://localhost:8000/commands/00000000-0000-4000-8000-000000000000/status
+```
+
+Expected response:
+
+```json
+{
+  "command_id": "00000000-0000-4000-8000-000000000000",
+  "status": "processing",
+  "callback_status": "pending"
+}
+```
+
+## Retrieve Latest Command by External Id
+
+When multiple commands share an external id, the latest command by
+`request_received_at` is returned:
+
+```text
+GET /commands/external/{external_id}
+```
+
+```bash
+curl -i http://localhost:8000/commands/external/BOLSISTA-12345
+```
+
+## List Commands
+
+Use the list endpoint to monitor command groups by status with pagination:
+
+```text
+GET /commands?status=failed&page=1&page_size=20
+```
+
+```bash
+curl -i "http://localhost:8000/commands?status=failed&page=1&page_size=20"
+```
+
+Expected response:
+
+```json
+{
+  "items": [
+    {
+      "id": "1",
+      "type": "SEND_EMAIL",
+      "status": "failed"
+    },
+    {
+      "id": "2",
+      "type": "GENERATE_REPORT",
+      "status": "failed"
+    }
+  ],
+  "total": 2,
+  "page": 1,
+  "page_size": 20
+}
+```
+
+Invalid status filters return `{"detail":"invalid status"}`. Invalid
+pagination returns `{"detail":"invalid pagination"}`.
+
 ## Worker Logs
 
-The API stores accepted commands in Redis and publishes their IDs to the Redis
-queue. The worker loads the command from Redis, runs the registered pipeline,
-and writes the final `completed` or `failed` status back to Redis. The service
-logs command submission, processing start, processing success, and processing
-failure.
+The API stores accepted commands in PostgreSQL and publishes their IDs to the
+Redis queue. The worker loads the command from PostgreSQL, runs the registered
+pipeline, writes the final `completed` or `failed` status back to PostgreSQL,
+and sends an optional callback after processing finishes. Callback failures set
+`callback_status` to `failed` and preserve the command processing status and
+`response_payload`. The service logs command submission, processing start,
+processing success, processing failure, callback attempt, callback success, and
+callback failure.
 
 ## Adding a Command Type
 

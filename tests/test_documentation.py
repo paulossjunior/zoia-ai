@@ -14,36 +14,64 @@ from app.infrastructure.memory_command_repository import MemoryCommandRepository
 DOCS_URL = "http://localhost:8000/docs"
 OPENAPI_PATH = "/openapi.json"
 COMMAND_PATH = "/commands"
-COMMAND_STATUS_PATH = "/commands/{command_id}"
+COMMAND_DETAIL_PATH = "/commands/{command_id}"
+COMMAND_STATUS_PATH = "/commands/{command_id}/status"
+COMMAND_EXTERNAL_PATH = "/commands/external/{external_id}"
 CANONICAL_COMMAND_REQUEST = {"type": "TEST_COMMAND", "payload": {"message": "hello"}}
 ACK_EXAMPLE = {"command_id": "00000000-0000-4000-8000-000000000000", "status": "queued"}
 VALIDATION_ERROR_EXAMPLE = {"detail": "invalid command request"}
-COMMAND_STATUS_EXAMPLE = {
+COMMAND_DETAIL_EXAMPLE = {
     "command_id": "00000000-0000-4000-8000-000000000000",
     "type": "TEST_COMMAND",
+    "external_id": None,
+    "callback": None,
     "payload": {"message": "hello"},
     "status": "completed",
-    "response": {"echo": "hello"},
+    "response_payload": {"echo": "hello"},
     "error_message": None,
+    "callback_status": "not_required",
+    "callback_error_message": None,
     "request_received_at": "2026-05-30T19:00:00Z",
     "processing_started_at": "2026-05-30T19:00:01Z",
     "processing_finished_at": "2026-05-30T19:00:02Z",
+    "callback_sent_at": None,
+}
+COMMAND_STATUS_EXAMPLE = {
+    "command_id": "00000000-0000-4000-8000-000000000000",
+    "status": "processing",
+    "callback_status": "pending",
+}
+COMMAND_LIST_EXAMPLE = {
+    "items": [
+        {"id": "1", "type": "SEND_EMAIL", "status": "failed"},
+        {"id": "2", "type": "GENERATE_REPORT", "status": "failed"},
+    ],
+    "total": 2,
+    "page": 1,
+    "page_size": 20,
 }
 INVALID_COMMAND_ID_EXAMPLE = {"detail": "invalid command_id"}
 COMMAND_NOT_FOUND_EXAMPLE = {"detail": "command not found"}
+INVALID_STATUS_EXAMPLE = {"detail": "invalid status"}
+INVALID_PAGINATION_EXAMPLE = {"detail": "invalid pagination"}
 PUBLIC_DOC_MODULES = [
     Path("app/domain/command.py"),
     Path("app/domain/status.py"),
     Path("app/domain/context.py"),
     Path("app/domain/ports.py"),
     Path("app/domain/handlers.py"),
+    Path("app/application/get_command.py"),
+    Path("app/application/get_command_by_external_id.py"),
     Path("app/application/submit_command.py"),
     Path("app/application/get_command_status.py"),
+    Path("app/application/list_commands.py"),
     Path("app/application/process_command.py"),
     Path("app/application/handler_registry.py"),
     Path("app/application/pipelines.py"),
     Path("app/infrastructure/redis_queue.py"),
     Path("app/infrastructure/redis_command_repository.py"),
+    Path("app/infrastructure/postgres_command_repository.py"),
+    Path("app/infrastructure/http_callback_client.py"),
     Path("app/infrastructure/memory_command_repository.py"),
     Path("app/infrastructure/logging.py"),
     Path("app/api/main.py"),
@@ -55,17 +83,36 @@ PUBLIC_DOC_MODULES = [
 ]
 PUBLIC_DOC_TARGETS = {
     Path("app/domain/command.py"): ["Command", "utcnow", "safe_error_message"],
-    Path("app/domain/status.py"): ["CommandStatus"],
+    Path("app/domain/status.py"): ["CommandStatus", "CallbackStatus"],
     Path("app/domain/context.py"): ["CommandContext"],
     Path("app/domain/ports.py"): ["CommandRepository", "CommandQueue", "CommandHandler", "CommandPipeline"],
     Path("app/domain/handlers.py"): ["BaseCommandHandler", "RecordingHandler"],
+    Path("app/application/get_command.py"): [
+        "GetCommand",
+        "GetCommandRequest",
+        "GetCommandResult",
+        "InvalidCommandIdError",
+        "CommandNotFoundError",
+    ],
     Path("app/application/submit_command.py"): ["SubmitCommand", "SubmitCommandRequest", "SubmitCommandResult", "InvalidCommandError"],
     Path("app/application/get_command_status.py"): [
         "GetCommandStatus",
         "GetCommandStatusRequest",
         "GetCommandStatusResult",
-        "InvalidCommandIdError",
         "CommandStatusNotFoundError",
+    ],
+    Path("app/application/get_command_by_external_id.py"): [
+        "GetCommandByExternalId",
+        "GetCommandByExternalIdRequest",
+        "InvalidExternalIdError",
+    ],
+    Path("app/application/list_commands.py"): [
+        "ListCommands",
+        "ListCommandsRequest",
+        "ListCommandsResult",
+        "CommandSummary",
+        "InvalidCommandStatusError",
+        "InvalidPaginationError",
     ],
     Path("app/application/process_command.py"): [
         "ProcessCommand",
@@ -77,11 +124,21 @@ PUBLIC_DOC_TARGETS = {
     Path("app/application/pipelines.py"): ["SequentialCommandPipeline"],
     Path("app/infrastructure/redis_queue.py"): ["RedisCommandQueue"],
     Path("app/infrastructure/redis_command_repository.py"): ["RedisCommandRepository"],
+    Path("app/infrastructure/postgres_command_repository.py"): ["PostgresCommandRepository"],
+    Path("app/infrastructure/http_callback_client.py"): ["HttpCallbackClient"],
     Path("app/infrastructure/memory_command_repository.py"): ["MemoryCommandRepository"],
     Path("app/infrastructure/logging.py"): ["configure_logging"],
     Path("app/api/main.py"): ["create_app"],
-    Path("app/api/schemas.py"): ["SubmitCommandRequest", "SubmitCommandResponse", "CommandStatusResponse", "ErrorResponse"],
-    Path("app/api/routes.py"): ["submit_command", "get_command_status"],
+    Path("app/api/schemas.py"): [
+        "SubmitCommandRequest",
+        "SubmitCommandResponse",
+        "CommandDetailResponse",
+        "CommandStatusResponse",
+        "CommandSummaryResponse",
+        "CommandListResponse",
+        "ErrorResponse",
+    ],
+    Path("app/api/routes.py"): ["submit_command", "list_commands", "get_command_by_external_id", "get_command_status_only", "get_command"],
     Path("app/worker/main.py"): ["create_worker_dependencies", "process_one", "run_forever", "main"],
     Path("app/commands/test_command/handlers.py"): [
         "ValidationHandler",
@@ -118,8 +175,20 @@ def _commands_operation() -> dict[str, Any]:
     return _openapi()["paths"][COMMAND_PATH]["post"]
 
 
+def _command_list_operation() -> dict[str, Any]:
+    return _openapi()["paths"][COMMAND_PATH]["get"]
+
+
+def _command_detail_operation() -> dict[str, Any]:
+    return _openapi()["paths"][COMMAND_DETAIL_PATH]["get"]
+
+
 def _command_status_operation() -> dict[str, Any]:
     return _openapi()["paths"][COMMAND_STATUS_PATH]["get"]
+
+
+def _command_external_operation() -> dict[str, Any]:
+    return _openapi()["paths"][COMMAND_EXTERNAL_PATH]["get"]
 
 
 def _schema(name: str) -> dict[str, Any]:
@@ -193,7 +262,7 @@ def test_documented_test_command_example_matches_endpoint_behavior() -> None:
 
 
 def test_public_openapi_does_not_require_queue_implementation_details() -> None:
-    operation_text = json.dumps([_commands_operation(), _command_status_operation()]).lower()
+    operation_text = json.dumps([_commands_operation(), _command_detail_operation(), _command_status_operation(), _command_list_operation()]).lower()
 
     for term in EXTERNAL_API_FORBIDDEN_TERMS:
         assert term not in operation_text
@@ -265,8 +334,8 @@ def test_readme_says_external_clients_do_not_need_queue_details() -> None:
     assert "queue implementation" in readme
 
 
-def test_openapi_documents_get_command_status_operation() -> None:
-    operation = _command_status_operation()
+def test_openapi_documents_get_command_detail_operation() -> None:
+    operation = _command_detail_operation()
 
     assert operation["summary"] == "Get command record"
     assert "read-only" in operation["description"]
@@ -274,33 +343,70 @@ def test_openapi_documents_get_command_status_operation() -> None:
     assert operation["tags"] == ["commands"]
 
 
-def test_openapi_command_status_schema_includes_complete_record_fields() -> None:
-    schema = _schema("CommandStatusResponse")
+def test_openapi_command_detail_schema_includes_complete_record_fields() -> None:
+    schema = _schema("CommandDetailResponse")
 
-    assert set(schema["required"]) == {"command_id", "type", "payload", "status", "request_received_at"}
+    assert set(schema["required"]) == {"command_id", "type", "payload", "status", "callback_status", "request_received_at"}
     assert schema["properties"].keys() >= {
         "command_id",
         "type",
+        "external_id",
+        "callback",
         "payload",
         "status",
-        "response",
+        "response_payload",
         "error_message",
+        "callback_status",
+        "callback_error_message",
         "request_received_at",
         "processing_started_at",
         "processing_finished_at",
+        "callback_sent_at",
     }
+    examples = _walk_examples(_command_detail_operation())
+    assert any(
+        isinstance(example, dict)
+        and example.items() <= COMMAND_DETAIL_EXAMPLE.items()
+        and example.get("command_id") == COMMAND_DETAIL_EXAMPLE["command_id"]
+        for example in examples
+    )
+
+
+def test_openapi_command_status_schema_is_status_only() -> None:
+    schema = _schema("CommandStatusResponse")
+
+    assert set(schema["required"]) == {"command_id", "status", "callback_status"}
+    assert set(schema["properties"]) == {"command_id", "status", "callback_status"}
     assert COMMAND_STATUS_EXAMPLE in _walk_examples(_command_status_operation())
 
 
+def test_openapi_documents_external_id_lookup_operation() -> None:
+    operation = _command_external_operation()
+
+    assert operation["summary"] == "Get latest command by external id"
+    assert operation["tags"] == ["commands"]
+    assert "external id" in operation["description"].lower()
+
+
+def test_openapi_command_list_schema_includes_summaries_and_pagination() -> None:
+    schema = _schema("CommandListResponse")
+    operation = _command_list_operation()
+
+    assert set(schema["required"]) == {"items", "total", "page", "page_size"}
+    parameters = {parameter["name"] for parameter in operation["parameters"]}
+    assert parameters >= {"status", "page", "page_size"}
+    assert COMMAND_LIST_EXAMPLE in _walk_examples(operation)
+
+
 def test_openapi_documents_invalid_command_id_response() -> None:
-    response = _command_status_operation()["responses"]["400"]
+    response = _command_detail_operation()["responses"]["400"]
 
     assert "invalid" in response["description"].lower()
     assert INVALID_COMMAND_ID_EXAMPLE in _walk_examples(response)
 
 
 def test_openapi_documents_command_not_found_response() -> None:
-    response = _command_status_operation()["responses"]["404"]
+    response = _command_detail_operation()["responses"]["404"]
 
     assert "not found" in response["description"].lower()
     assert COMMAND_NOT_FOUND_EXAMPLE in _walk_examples(response)
@@ -311,15 +417,26 @@ def test_readme_documents_command_status_query() -> None:
     lowered = readme.lower()
 
     assert "GET /commands/{command_id}" in readme
+    assert "GET /commands/{command_id}/status" in readme
+    assert "GET /commands?status=failed&page=1&page_size=20" in readme
     assert "curl -i http://localhost:8000/commands/00000000-0000-4000-8000-000000000000" in readme
     assert '"payload"' in readme
-    assert '"response"' in readme
+    assert '"response_payload"' in readme
     assert '"request_received_at"' in readme
     assert '"processing_started_at"' in readme
     assert '"processing_finished_at"' in readme
     assert "invalid command_id" in readme
     assert "command not found" in readme
     assert "read-only" in lowered
+
+
+def test_openapi_documents_list_query_errors() -> None:
+    response = _command_list_operation()["responses"]["400"]
+
+    assert "invalid" in response["description"].lower()
+    examples = _walk_examples(response)
+    assert INVALID_STATUS_EXAMPLE in examples
+    assert INVALID_PAGINATION_EXAMPLE in examples
 
 
 def test_persisted_command_record_contract_examples_are_documented() -> None:
@@ -330,7 +447,7 @@ def test_persisted_command_record_contract_examples_are_documented() -> None:
     for field in (
         "command_id",
         "payload",
-        "response",
+        "response_payload",
         "error_message",
         "request_received_at",
         "processing_started_at",

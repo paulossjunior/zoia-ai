@@ -7,20 +7,22 @@ import time
 
 from app.application.handler_registry import create_default_registry
 from app.application.process_command import CommandNotFoundError, ProcessCommand, ProcessCommandRequest
+from app.infrastructure.http_callback_client import HttpCallbackClient
 from app.infrastructure.logging import configure_logging
-from app.infrastructure.redis_command_repository import RedisCommandRepository
+from app.infrastructure.postgres_command_repository import PostgresCommandRepository
 from app.infrastructure.redis_queue import RedisCommandQueue
 
 
 logger = logging.getLogger(__name__)
 
 
-def create_worker_dependencies() -> tuple[RedisCommandRepository, RedisCommandQueue, ProcessCommand]:
+def create_worker_dependencies() -> tuple[PostgresCommandRepository, RedisCommandQueue, ProcessCommand]:
     """Compose runtime adapters, registry, and processing use case."""
-    repository = RedisCommandRepository()
+    repository = PostgresCommandRepository()
     queue = RedisCommandQueue()
     registry = create_default_registry()
-    return repository, queue, ProcessCommand(repository, registry)
+    callback_client = HttpCallbackClient()
+    return repository, queue, ProcessCommand(repository, registry, callback_client)
 
 
 def process_one(queue: object, processor: ProcessCommand, timeout: int = 0) -> bool:

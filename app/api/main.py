@@ -10,10 +10,14 @@ from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 
 from app.api.routes import router
+from app.application.get_command import GetCommand
+from app.application.get_command_by_external_id import GetCommandByExternalId
 from app.application.get_command_status import GetCommandStatus
+from app.application.list_commands import ListCommands
 from app.application.submit_command import InvalidCommandError, SubmitCommand
 from app.infrastructure.logging import configure_logging
 from app.infrastructure.memory_command_repository import MemoryCommandRepository
+from app.infrastructure.postgres_command_repository import PostgresCommandRepository
 from app.infrastructure.redis_command_repository import RedisCommandRepository
 from app.infrastructure.redis_queue import RedisCommandQueue
 
@@ -41,12 +45,22 @@ def create_app(repository: object | None = None, queue: object | None = None) ->
             }
         ],
     )
-    repo = repository or RedisCommandRepository()
+    if repository is not None:
+        repo = repository
+    else:
+        try:
+            repo = PostgresCommandRepository()
+        except ModuleNotFoundError:
+            logger.warning("postgres_driver_missing falling_back_to_redis_repository")
+            repo = RedisCommandRepository()
     command_queue = queue or RedisCommandQueue()
     app.state.repository = repo
     app.state.queue = command_queue
     app.state.submit_command = SubmitCommand(repo, command_queue)
+    app.state.get_command = GetCommand(repo)
     app.state.get_command_status = GetCommandStatus(repo)
+    app.state.get_command_by_external_id = GetCommandByExternalId(repo)
+    app.state.list_commands = ListCommands(repo)
 
     def custom_openapi() -> dict[str, object]:
         """Generate OpenAPI schema aligned with the API's HTTP 400 validation contract."""
@@ -62,10 +76,6 @@ def create_app(repository: object | None = None, queue: object | None = None) ->
         for path_item in schema["paths"].values():
             for operation in path_item.values():
                 operation.get("responses", {}).pop("422", None)
-        status_response = schema["paths"].get("/commands/{command_id}", {}).get("get", {}).get("responses", {}).get("200", {})
-        status_example = status_response.get("content", {}).get("application/json", {}).get("example")
-        if isinstance(status_example, dict):
-            status_example["error_message"] = None
         app.openapi_schema = schema
         return app.openapi_schema
 

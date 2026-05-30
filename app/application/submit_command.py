@@ -7,7 +7,7 @@ import logging
 from typing import Any
 from uuid import uuid4
 
-from app.domain.command import Command
+from app.domain.command import Command, normalize_optional_text
 from app.domain.ports import CommandQueue, CommandRepository
 from app.domain.status import CommandStatus
 
@@ -27,6 +27,8 @@ class SubmitCommandRequest:
 
     type: str
     payload: dict[str, Any]
+    external_id: str | None = None
+    callback: str | None = None
 
 
 @dataclass(frozen=True)
@@ -49,7 +51,13 @@ class SubmitCommand:
         """Store a queued command, publish its id, and return the acknowledgement."""
         command_type = self._validate_type(request.type)
         payload = self._validate_payload(request.payload)
-        command = Command(id=str(uuid4()), type=command_type, payload=payload)
+        command = Command(
+            id=str(uuid4()),
+            type=command_type,
+            payload=payload,
+            external_id=normalize_optional_text(request.external_id),
+            callback=normalize_optional_text(request.callback),
+        )
 
         self.repository.save(command)
         logger.info(

@@ -10,3 +10,12 @@ class CommandStatus(StrEnum):
     PROCESSING = "processing"
     COMPLETED = "completed"
     FAILED = "failed"
+
+
+class CallbackStatus(StrEnum):
+    """Allowed states for optional callback delivery after processing."""
+
+    NOT_REQUIRED = "not_required"
+    PENDING = "pending"
+    SENT = "sent"
+    FAILED = "failed"

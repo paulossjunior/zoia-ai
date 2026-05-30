@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from app.application.pipelines import SequentialCommandPipeline
+from app.domain.command import Command
 from app.domain.context import CommandContext
 from app.infrastructure.memory_command_repository import MemoryCommandRepository
 
@@ -53,3 +54,17 @@ def sample_payload() -> dict[str, str]:
 @pytest.fixture
 def fake_pipeline() -> SequentialCommandPipeline:
     return SequentialCommandPipeline([FakeHandler("fake")])
+
+
+def make_command(command_id: str, status: str = "queued", command_type: str = "TEST_COMMAND") -> Command:
+    """Create a command fixture in the requested lifecycle state."""
+    command = Command(id=command_id, type=command_type, payload={"message": command_id})
+    if status == "processing":
+        command.mark_processing()
+    elif status == "completed":
+        command.mark_processing()
+        command.mark_completed({"echo": command_id})
+    elif status == "failed":
+        command.mark_processing()
+        command.mark_failed(f"{command_id} failed")
+    return command

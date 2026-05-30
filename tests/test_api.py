@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import timedelta
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
@@ -43,6 +44,40 @@ def test_post_commands_valid_request_returns_202_and_queued() -> None:
     assert command.payload == {"message": "hello"}
     assert command.request_received_at is not None
     assert command.status == CommandStatus.QUEUED
+    assert command.callback_status.value == "not_required"
+
+
+def test_post_commands_full_request_persists_external_id_and_callback() -> None:
+    repo = MemoryCommandRepository()
+    client = TestClient(create_app(repo, ExplodingQueue()))
+
+    response = client.post(
+        "/commands",
+        json={
+            "type": "TEST_COMMAND",
+            "payload": {"message": "hello"},
+            "external_id": "BOLSISTA-12345",
+            "callback": "https://sistema-origem.com/api/callback",
+        },
+    )
+
+    assert response.status_code == 202
+    command = repo.get_by_id(response.json()["command_id"])
+    assert command.external_id == "BOLSISTA-12345"
+    assert command.callback == "https://sistema-origem.com/api/callback"
+    assert command.callback_status.value == "pending"
+
+
+def test_post_commands_blank_callback_is_not_required() -> None:
+    repo = MemoryCommandRepository()
+    client = TestClient(create_app(repo, ExplodingQueue()))
+
+    response = client.post("/commands", json={"type": "TEST_COMMAND", "payload": {}, "callback": "   "})
+
+    assert response.status_code == 202
+    command = repo.get_by_id(response.json()["command_id"])
+    assert command.callback is None
+    assert command.callback_status.value == "not_required"
 
 
 def test_post_commands_validation_errors_return_400() -> None:
@@ -90,10 +125,12 @@ def test_get_commands_record_returns_200_for_known_command() -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["command_id"] == command.id
+    assert "id" not in body
     assert body["type"] == "TEST_COMMAND"
     assert body["payload"] == {"message": "hello"}
     assert body["status"] == CommandStatus.COMPLETED.value
-    assert body["response"] == {"echo": "hello"}
+    assert body["response_payload"] == {"echo": "hello"}
+    assert body["callback_status"] == "not_required"
     assert body["request_received_at"]
     assert body["processing_started_at"]
     assert body["processing_finished_at"]
@@ -115,7 +152,8 @@ def test_get_commands_record_returns_queued_payload_and_receipt_timestamp() -> N
     assert body["request_received_at"]
     assert body["processing_started_at"] is None
     assert body["processing_finished_at"] is None
-    assert body["response"] is None
+    assert body["response_payload"] is None
+    assert body["callback_status"] == "not_required"
     assert body["error_message"] is None
 
 
@@ -133,7 +171,7 @@ def test_get_commands_record_returns_failed_error_and_null_response() -> None:
     body = response.json()
     assert body["status"] == "failed"
     assert body["payload"] == {"message": "hello"}
-    assert body["response"] is None
+    assert body["response_payload"] is None
     assert body["error_message"] == "boom"
     assert body["processing_finished_at"]
 
@@ -157,6 +195,64 @@ def test_get_commands_status_does_not_publish_or_execute_handlers(monkeypatch) -
     assert called is False
 
 
+def test_get_commands_status_only_returns_id_and_status_for_known_command() -> None:
+    repo = MemoryCommandRepository()
+    command = Command(id=str(uuid4()), type="TEST_COMMAND", payload={"message": "hello"})
+    command.mark_processing()
+    repo.save(command)
+    client = TestClient(create_app(repo, GuardQueue()))
+
+    response = client.get(f"/commands/{command.id}/status")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "command_id": command.id,
+        "status": "processing",
+        "callback_status": "not_required",
+    }
+
+
+def test_get_commands_status_only_omits_detail_fields() -> None:
+    repo = MemoryCommandRepository()
+    command = Command(id=str(uuid4()), type="TEST_COMMAND", payload={"message": "hello"})
+    command.mark_processing()
+    command.mark_completed({"echo": "hello"})
+    repo.save(command)
+    client = TestClient(create_app(repo, GuardQueue()))
+
+    body = client.get(f"/commands/{command.id}/status").json()
+
+    assert set(body) == {"command_id", "status", "callback_status"}
+    for field in ("payload", "response_payload", "error_message", "request_received_at"):
+        assert field not in body
+
+
+def test_get_commands_status_only_does_not_publish_or_execute_handlers(monkeypatch) -> None:
+    called = False
+
+    def forbidden_handle(self, context: CommandContext) -> None:
+        nonlocal called
+        called = True
+
+    monkeypatch.setattr("app.commands.test_command.handlers.BusinessCommandHandler.handle", forbidden_handle)
+    repo = MemoryCommandRepository()
+    command = Command(id=str(uuid4()), type="TEST_COMMAND", payload={"message": "hello"})
+    repo.save(command)
+    client = TestClient(create_app(repo, GuardQueue()))
+
+    response = client.get(f"/commands/{command.id}/status")
+
+    assert response.status_code == 200
+    assert called is False
+
+
+def test_get_commands_status_only_errors() -> None:
+    client = TestClient(create_app(MemoryCommandRepository(), GuardQueue()))
+
+    assert client.get("/commands/not-a-uuid/status").status_code == 400
+    assert client.get("/commands/00000000-0000-4000-8000-000000000001/status").status_code == 404
+
+
 def test_get_commands_status_malformed_id_returns_400() -> None:
     client = TestClient(create_app(MemoryCommandRepository(), GuardQueue()))
 
@@ -173,6 +269,81 @@ def test_get_commands_status_unknown_id_returns_404() -> None:
 
     assert response.status_code == 404
     assert response.json() == {"detail": "command not found"}
+
+
+def test_get_commands_external_id_returns_latest_command() -> None:
+    repo = MemoryCommandRepository()
+    older = Command(id=str(uuid4()), type="TEST_COMMAND", payload={"version": 1}, external_id="EXT-1")
+    newer = Command(id=str(uuid4()), type="TEST_COMMAND", payload={"version": 2}, external_id="EXT-1")
+    older.request_received_at = newer.request_received_at - timedelta(seconds=10)
+    repo.save(older)
+    repo.save(newer)
+    client = TestClient(create_app(repo, GuardQueue()))
+
+    response = client.get("/commands/external/EXT-1")
+
+    assert response.status_code == 200
+    assert response.json()["command_id"] == newer.id
+    assert response.json()["external_id"] == "EXT-1"
+
+
+def test_get_commands_external_id_unknown_returns_404() -> None:
+    client = TestClient(create_app(MemoryCommandRepository(), GuardQueue()))
+
+    response = client.get("/commands/external/EXT-404")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "command not found"}
+
+
+def test_list_commands_filters_by_status_and_returns_summaries() -> None:
+    repo = MemoryCommandRepository()
+    failed = Command(id=str(uuid4()), type="SEND_EMAIL", payload={"message": "failed"})
+    failed.mark_processing()
+    failed.mark_failed("boom")
+    completed = Command(id=str(uuid4()), type="GENERATE_REPORT", payload={"message": "done"})
+    completed.mark_processing()
+    completed.mark_completed({"ok": True})
+    repo.save(failed)
+    repo.save(completed)
+    client = TestClient(create_app(repo, GuardQueue()))
+
+    response = client.get("/commands?status=failed&page=1&page_size=20")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 1
+    assert body["page"] == 1
+    assert body["page_size"] == 20
+    assert body["items"] == [{"id": failed.id, "type": "SEND_EMAIL", "status": "failed"}]
+    assert "payload" not in body["items"][0]
+
+
+def test_list_commands_invalid_status_and_pagination_return_400() -> None:
+    client = TestClient(create_app(MemoryCommandRepository(), GuardQueue()))
+
+    assert client.get("/commands?status=unknown").json() == {"detail": "invalid status"}
+    assert client.get("/commands?status=unknown").status_code == 400
+    assert client.get("/commands?page=0&page_size=20").json() == {"detail": "invalid pagination"}
+    assert client.get("/commands?page=0&page_size=20").status_code == 400
+
+
+def test_list_commands_does_not_publish_or_execute_handlers(monkeypatch) -> None:
+    called = False
+
+    def forbidden_handle(self, context: CommandContext) -> None:
+        nonlocal called
+        called = True
+
+    monkeypatch.setattr("app.commands.test_command.handlers.BusinessCommandHandler.handle", forbidden_handle)
+    repo = MemoryCommandRepository()
+    repo.save(Command(id=str(uuid4()), type="TEST_COMMAND", payload={"message": "hello"}))
+    client = TestClient(create_app(repo, GuardQueue()))
+
+    response = client.get("/commands")
+
+    assert response.status_code == 200
+    assert called is False
 
 
 def test_get_commands_status_error_bodies_do_not_expose_internals() -> None:
