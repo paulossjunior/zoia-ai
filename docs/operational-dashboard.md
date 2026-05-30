@@ -30,24 +30,24 @@ The dashboard does not connect directly to PostgreSQL or Redis.
 
 ```mermaid
 flowchart LR
-    operator[Operator/Admin] -->|GET /dashboard| dashboard[Operational Dashboard<br/>Vue 3 + Pinia]
-    dashboard -->|GET /api/dashboard/* via Vite proxy| api[Command API<br/>FastAPI]
-    api --> queries[Read Use Cases<br/>Dashboard Queries]
-    queries --> store[(Command Store<br/>PostgreSQL)]
+    operator["Operator/Admin"] --> dashboard["Operational Dashboard"]
+    dashboard --> api["Command API"]
+    api --> queries["Dashboard query use cases"]
+    queries --> store[("PostgreSQL Command Store")]
 
-    external[External System] -->|POST /commands| api
-    api --> submit[SubmitCommand]
-    submit -->|persist queued command| store
-    submit -->|publish command_id| queue[(Command Queue<br/>Redis)]
-    worker[Worker] -->|consume command_id| queue
-    worker --> process[ProcessCommand]
-    process --> registry[HandlerRegistry]
-    registry --> pipeline[Command Pipeline]
-    pipeline --> handlers[Chain of Responsibility<br/>Validation / Idempotency / Business / Audit]
-    process -->|update status, response, errors| store
+    external["External System"] --> api
+    api --> submit["SubmitCommand"]
+    submit --> store
+    submit --> queue[("Redis Command Queue")]
+    worker["Worker"] --> queue
+    worker --> process["ProcessCommand"]
+    process --> registry["HandlerRegistry"]
+    registry --> pipeline["Command Pipeline"]
+    pipeline --> handlers["Command Handlers"]
+    process --> store
 
-    dashboard -. read-only .-> api
-    worker -. type-agnostic .-> registry
+    dashboard -. "read only" .-> api
+    worker -. "type agnostic" .-> registry
 ```
 
 Local URLs:

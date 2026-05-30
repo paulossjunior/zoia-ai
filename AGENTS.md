@@ -30,27 +30,27 @@ Use this Mermaid diagram when explaining the current system architecture:
 
 ```mermaid
 flowchart LR
-    external[External System] -->|POST /commands| api[Command API<br/>FastAPI + Pydantic]
-    operator[Operator/Admin] -->|GET /dashboard| dashboard[Operational Dashboard<br/>Vue 3 + Pinia]
+    external["External System"] --> api["Command API"]
+    operator["Operator/Admin"] --> dashboard["Operational Dashboard"]
 
-    subgraph app_layers[Python Service]
-        api --> submit[SubmitCommand<br/>application use case]
-        api --> queries[Read Use Cases<br/>Get/List/Dashboard Queries]
-        worker[Worker<br/>Python process] --> process[ProcessCommand<br/>application use case]
-        process --> registry[HandlerRegistry]
-        registry --> pipeline[Command Pipeline<br/>Chain of Responsibility]
-        pipeline --> handlers[Validation<br/>Idempotency<br/>Business<br/>Audit]
+    subgraph app_layers["Python Service"]
+        api --> submit["SubmitCommand use case"]
+        api --> queries["Read query use cases"]
+        worker["Worker process"] --> process["ProcessCommand use case"]
+        process --> registry["HandlerRegistry"]
+        registry --> pipeline["Command Pipeline"]
+        pipeline --> handlers["Command Handlers"]
     end
 
-    submit -->|persist queued command| store[(Command Store<br/>PostgreSQL)]
-    submit -->|publish command_id| queue[(Command Queue<br/>Redis)]
-    worker -->|consume command_id| queue
-    process -->|load/update status, response, errors| store
-    queries -->|read persisted records| store
-    dashboard -->|GET /dashboard/indicators<br/>GET /dashboard/commands<br/>GET /dashboard/commands/{id}| api
+    submit --> store[("PostgreSQL Command Store")]
+    submit --> queue[("Redis Command Queue")]
+    worker --> queue
+    process --> store
+    queries --> store
+    dashboard --> api
 
-    api -. no business processing .-> submit
-    dashboard -. read-only .-> queries
+    api -. "no business processing" .-> submit
+    dashboard -. "read only" .-> queries
 ```
 
 Key boundaries:
