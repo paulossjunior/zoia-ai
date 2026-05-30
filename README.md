@@ -16,6 +16,31 @@ executes command-specific pipelines.
 
 Redis, PostgreSQL, HTTP clients, FastAPI, and Docker do not appear in the domain layer.
 
+```mermaid
+flowchart LR
+    external[External System] -->|POST /commands| api[Command API<br/>FastAPI + Pydantic]
+    operator[Operator/Admin] -->|GET /dashboard| dashboard[Operational Dashboard<br/>Vue 3 + Pinia]
+
+    subgraph app_layers[Python Service]
+        api --> submit[SubmitCommand<br/>application use case]
+        api --> queries[Read Use Cases<br/>Get/List/Dashboard Queries]
+        worker[Worker<br/>Python process] --> process[ProcessCommand<br/>application use case]
+        process --> registry[HandlerRegistry]
+        registry --> pipeline[Command Pipeline<br/>Chain of Responsibility]
+        pipeline --> handlers[Validation<br/>Idempotency<br/>Business<br/>Audit]
+    end
+
+    submit -->|persist queued command| store[(Command Store<br/>PostgreSQL)]
+    submit -->|publish command_id| queue[(Command Queue<br/>Redis)]
+    worker -->|consume command_id| queue
+    process -->|load/update status, response, errors| store
+    queries -->|read persisted records| store
+    dashboard -->|GET /dashboard/indicators<br/>GET /dashboard/commands<br/>GET /dashboard/commands/{id}| api
+
+    api -. no business processing .-> submit
+    dashboard -. read-only .-> queries
+```
+
 Architecture Decision Records are available in [`docs/adr`](docs/adr/README.md).
 Operational dashboard documentation is available in
 [`docs/operational-dashboard.md`](docs/operational-dashboard.md).
