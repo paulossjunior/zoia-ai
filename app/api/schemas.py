@@ -176,6 +176,42 @@ class CommandListResponse(BaseModel):
     page_size: int = Field(description="Requested page size.")
 
 
+class DashboardIndicatorsResponse(BaseModel):
+    """Read-only operational counters consumed by the dashboard frontend."""
+
+    total_commands: int
+    queued_commands: int
+    processing_commands: int
+    completed_commands: int
+    failed_commands: int
+    callback_not_required: int
+    callback_pending: int
+    callback_sent: int
+    callback_failed: int
+
+
+class DashboardCommandSummaryResponse(BaseModel):
+    """Dashboard command row with identifiers, statuses, and timestamps."""
+
+    command_id: str
+    type: str
+    external_id: str | None = None
+    status: str
+    callback_status: str
+    request_received_at: datetime
+    processing_started_at: datetime | None = None
+    processing_finished_at: datetime | None = None
+
+
+class DashboardCommandListResponse(BaseModel):
+    """Paginated dashboard command rows."""
+
+    items: list[DashboardCommandSummaryResponse]
+    total: int
+    page: int
+    page_size: int
+
+
 class ErrorResponse(BaseModel):
     """Error body returned when command validation or lookup fails."""
 

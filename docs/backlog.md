@@ -20,6 +20,7 @@ task groups are traceable to the corresponding `spec.md` and `tasks.md` files.
 | EPIC-004 Command Persistence | `specs/004-command-persistence` | Done | 3 | 58 |
 | EPIC-005 Command Query | `specs/005-command-query` | Done | 3 | 58 |
 | EPIC-006 Command Callback Persistence | `specs/006-command-callback-persistence` | Done | 4 | 96 |
+| EPIC-007 Operational Command Dashboard | `specs/007-operational-dashboard` | Done | 4 | 92 |
 
 ---
 
@@ -358,6 +359,81 @@ Tasks:
 - T071-T075: Test full detail callback fields, status-only callback status, latest external-id lookup, 400/404 behavior, and repository ordering.
 - T076-T087: Update response schemas, use-case mappings, create `GetCommandByExternalId`, order routes safely, update repositories/indexes, OpenAPI docs, and focused US4 tests.
 - T088-T096: Update README, add ADR-0009, revise Redis ADR, update quickstart, run full tests, validate Docker Compose, verify curl quickstart, verify Swagger, and run final architecture/docs checks.
+
+---
+
+## EPIC-007: Operational Command Dashboard
+
+**Source**: `specs/007-operational-dashboard`  
+**Status**: Done  
+**Goal**: Provide a read-only Vue dashboard for operators and administrators to
+monitor persisted commands, status distribution, callback outcomes, filtered
+command lists, and full command details.
+
+### US-007.1: View Operational Indicators
+
+**Priority**: P1  
+**Status**: Done  
+**Outcome**: Operators can open `/dashboard` and see total command counts,
+command status distribution, callback status distribution, loading, empty, and
+error states.
+
+Tasks:
+
+- T001-T017: Create the dashboard project, Vite/Vue tooling, Dockerfile,
+  Docker Compose service, router, app shell, and ignore rules.
+- T018-T032: Define TypeScript contracts, read-only service, Pinia store,
+  shared UI states, fixtures, and foundational tests.
+- T033-T042: Test and implement indicator cards, indicator grid, dashboard
+  loading/error/empty behavior, route mounting, and responsive header layout.
+
+### US-007.2: Browse and Filter Commands
+
+**Priority**: P2  
+**Status**: Done  
+**Outcome**: Operators can view a paginated command table, combine filters,
+search by command or external id, and sort by supported fields.
+
+Tasks:
+
+- T043-T048: Test list query serialization, filter state, filter controls,
+  table columns, pagination, sorting, search, and no-results state.
+- T049-T057: Implement typed query parameters, filter actions, filter form,
+  command table, pagination, sortable headers, status badges, and default
+  newest-first ordering.
+
+### US-007.3: Inspect Command Details
+
+**Priority**: P3  
+**Status**: Done  
+**Outcome**: Operators can select a command and inspect identification,
+processing timestamps, callback fields, formatted payload JSON, response JSON,
+and error messages.
+
+Tasks:
+
+- T058-T062: Test command detail loading, 404/error handling, selected detail
+  state, JSON viewer behavior, details drawer sections, and table selection.
+- T063-T071: Implement expandable JSON rendering, selected detail store action,
+  details drawer, callback and processing sections, payload/response/error
+  sections, row selection wiring, and keyboard close behavior.
+
+### US-007.4: Refresh Dashboard Data
+
+**Priority**: P4  
+**Status**: Done  
+**Outcome**: Operators can manually refresh indicators and command lists
+without a full page reload while preserving active criteria.
+
+Tasks:
+
+- T072-T074: Test refresh button states, store refresh preservation, and
+  dashboard refresh behavior.
+- T075-T079: Implement refresh button loading state, `refreshDashboard`, header
+  wiring, failure preservation, and refresh error display.
+- T080-T092: Polish responsive/accessibility behavior, add ADR-0010, update
+  backlog, README, quickstart, run dashboard tests/build, run backend
+  regression tests, and verify architecture guardrails.
 
 ---
 

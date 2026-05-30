@@ -69,6 +69,19 @@ services:
       postgres:
         condition: service_healthy
 
+  dashboard:
+    build:
+      context: ./dashboard
+    command: npm run dev
+    environment:
+      VITE_API_BASE_URL: /api
+      VITE_API_PROXY_TARGET: http://api:8000
+    ports:
+      - "5173:5173"
+    depends_on:
+      api:
+        condition: service_started
+
 volumes:
   redisinsight-data:
   postgres-data:

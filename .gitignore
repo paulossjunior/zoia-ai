@@ -4,6 +4,12 @@ __pycache__/
 .venv/
 venv/
 dist/
+build/
+node_modules/
+coverage/
+dashboard/dist/
+dashboard/node_modules/
+dashboard/coverage/
 *.egg-info/
 .env*
 *.log
