@@ -74,6 +74,8 @@
 
 - What happens when [boundary condition]?
 - How does system handle [error scenario]?
+- What validation failures must be rejected before any asynchronous work is created?
+- What observable status or error is recorded when asynchronous processing fails?
 
 ## Requirements *(mandatory)*
 
@@ -89,6 +91,8 @@
 - **FR-003**: Users MUST be able to [key interaction, e.g., "reset their password"]
 - **FR-004**: System MUST [data requirement, e.g., "persist user preferences"]
 - **FR-005**: System MUST [behavior, e.g., "log all security events"]
+- **FR-006**: System MUST define explicit request, response, error, and state contracts for all external interactions.
+- **FR-007**: System MUST define observable success and failure outcomes for asynchronous work when the feature creates or processes commands.
 
 *Example of marking unclear requirements:*
 
@@ -99,6 +103,11 @@
 
 - **[Entity 1]**: [What it represents, key attributes without implementation]
 - **[Entity 2]**: [What it represents, relationships to other entities]
+
+### Contracts *(include if feature exposes inputs or outputs)*
+
+- **[Contract 1]**: [Request shape, response shape, required fields, validation errors, and allowed states]
+- **[Contract 2]**: [Payload contract, processing outcome contract, or external integration contract]
 
 ## Success Criteria *(mandatory)*
 
@@ -126,3 +135,4 @@
 - [Assumption about scope boundaries, e.g., "Mobile support is out of scope for v1"]
 - [Assumption about data/environment, e.g., "Existing authentication system will be reused"]
 - [Dependency on existing system/service, e.g., "Requires access to the existing user profile API"]
+- [Assumption about whether work is synchronous or asynchronous, especially for command processing]

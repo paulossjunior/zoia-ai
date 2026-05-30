@@ -1,0 +1,91 @@
+openapi: 3.1.0
+info:
+  title: Async Command Processing API
+  version: 1.0.0
+paths:
+  /commands:
+    post:
+      summary: Submit a command for asynchronous processing
+      operationId: submitCommand
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmitCommandRequest"
+            examples:
+              testCommand:
+                summary: Test command
+                value:
+                  type: TEST_COMMAND
+                  payload:
+                    message: "hello"
+      responses:
+        "202":
+          description: Command accepted, recorded, and queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubmitCommandResponse"
+              examples:
+                queued:
+                  value:
+                    command_id: "00000000-0000-4000-8000-000000000000"
+                    status: queued
+        "400":
+          description: Invalid command envelope
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                missingType:
+                  value:
+                    detail: "type is required"
+                missingPayload:
+                  value:
+                    detail: "payload is required"
+components:
+  schemas:
+    SubmitCommandRequest:
+      type: object
+      required:
+        - type
+        - payload
+      properties:
+        type:
+          type: string
+          minLength: 1
+          description: Command type used to resolve a processing pipeline.
+        payload:
+          type: object
+          additionalProperties: true
+          description: Command-specific payload object.
+      additionalProperties: false
+    SubmitCommandResponse:
+      type: object
+      required:
+        - command_id
+        - status
+      properties:
+        command_id:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/CommandStatus"
+      additionalProperties: false
+    CommandStatus:
+      type: string
+      enum:
+        - queued
+        - processing
+        - completed
+        - failed
+    ErrorResponse:
+      type: object
+      required:
+        - detail
+      properties:
+        detail:
+          type: string
+      additionalProperties: true

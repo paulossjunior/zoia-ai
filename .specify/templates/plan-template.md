@@ -31,7 +31,28 @@
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-[Gates determined based on constitution file]
+Document how this plan satisfies the active constitution:
+
+- **Domain boundaries**: Identify domain, application, and infrastructure layers.
+  Domain code must not depend on databases, queues, web frameworks, or external
+  services.
+- **Asynchronous command flow**: For command-oriented features, confirm the HTTP
+  surface only validates, records, and enqueues work while workers execute the
+  real processing.
+- **Explicit contracts**: List request, response, error, payload, and state
+  contracts that must exist for this feature.
+- **Infrastructure abstraction**: Identify application-defined ports/interfaces
+  for queues, storage, and external services. Name the adapters separately.
+- **Observability**: Define required logs and status transitions, including
+  submission, processing start, success, and failure.
+- **Testing discipline**: List tests required before or alongside implementation,
+  including success paths, validation errors, handler failures, queue adapter or
+  mock integration, and proof that the API does not process commands directly.
+- **Handler extensibility**: For command types, explain how new handlers are
+  registered without changing the main submission or worker flow.
+
+Any unchecked item is a constitution violation and must be documented in
+Complexity Tracking before Phase 0 begins.
 
 ## Project Structure
 
@@ -58,22 +79,23 @@ specs/[###-feature]/
 ```text
 # [REMOVE IF UNUSED] Option 1: Single project (DEFAULT)
 src/
-├── models/
-├── services/
-├── cli/
-└── lib/
+├── domain/
+├── application/
+└── infrastructure/
 
 tests/
 ├── contract/
 ├── integration/
-└── unit/
+├── unit/
+└── observability/
 
 # [REMOVE IF UNUSED] Option 2: Web application (when "frontend" + "backend" detected)
 backend/
 ├── src/
-│   ├── models/
-│   ├── services/
-│   └── api/
+│   ├── domain/
+│   ├── application/
+│   ├── infrastructure/
+│   └── interfaces/
 └── tests/
 
 frontend/

@@ -1,0 +1,14 @@
+.git/
+.dockerignore
+Dockerfile*
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+dist/
+*.egg-info/
+*.log*
+.env*
+coverage/
+.DS_Store

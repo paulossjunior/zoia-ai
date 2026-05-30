@@ -15,6 +15,7 @@
   - Feature requirements from spec.md
   - Technical context from plan.md
   - Implementation details from tasks.md
+  - Active constitution principles and quality gates
   
   DO NOT keep these sample items in the generated checklist file.
   ============================================================================
